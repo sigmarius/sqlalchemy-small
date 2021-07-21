@@ -8,9 +8,10 @@ from sqlalchemy import (
     create_engine,
     func,
     ForeignKey,
+    or_
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, sessionmaker, scoped_session
+from sqlalchemy.orm import relationship, sessionmaker, scoped_session, joinedload
 
 # echo=True => распечатывает все запросы к БД в консоль
 engine = create_engine("sqlite:///example-04.db", echo=True)
@@ -38,6 +39,9 @@ class User(Base):
     def __str__(self):
         return f"User #{self.id} username:{self.username}"
 
+    def __repr__(self):
+        return str(self)
+
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
@@ -55,6 +59,7 @@ class UserProfile(Base):
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 
+
 class Post(Base):
     __tablename__ = "posts"
 
@@ -70,6 +75,9 @@ class Post(Base):
 
     def __str__(self):
         return f"{self.title} by #{self.user_id}"
+
+    def __repr__(self):
+        return str(self)
 
 
 def create_users():
@@ -108,7 +116,14 @@ def show_users_with_related():
 
     # объектная нотация для подсказок в print
     admin: User = session.query(User).filter_by(username="admin").one_or_none()
-    mark: User = session.query(User).filter_by(username="mark").one_or_none()
+    mark: User = session.query(
+        User,
+    ).filter_by(
+        username="mark",
+    ).options(
+        joinedload(User.profile),
+        joinedload(User.posts)
+    ).one()
 
     print("admin with profile and posts", admin, admin.profile, admin.posts)
     print("mark with profile and posts", mark, mark.profile, mark.posts)
@@ -123,10 +138,57 @@ def create_posts():
     admin: User = session.query(User).filter_by(username="admin").one_or_none()
     mark: User = session.query(User).filter_by(username="mark").one_or_none()
 
-    print("admin with profile and posts", admin, admin.profile, admin.posts)
-    print("mark with profile and posts", mark, mark.profile, mark.posts)
+    post_django = Post(title="Django lesson", user=admin)
+    post_flask = Post(title="Flask lesson", user=mark)
+    post_fast_api = Post(title="FastAPI lesson", user=mark)
+
+    session.add(post_django)
+    session.add(post_flask)
+    session.add(post_fast_api)
+    session.commit()
+
+    print("admin with posts", admin, admin.posts)
+    print("mark with posts", mark,  mark.posts)
 
     session.close()
+
+
+def demo_filtering():
+    marks = Session.query(User).join(UserProfile).filter(
+        # ilike => case insensitive
+        UserProfile.first_name.ilike("mark")
+    ).all()
+
+    # pure SQL
+    res = Session.execute("SELECT * FROM USERS;")
+
+    print("marks: ", marks)
+    print("pure SQL: ", list(res))
+
+    Session.close()
+
+
+def demo_filtering2():
+    users_flask_or_django = Session.query(
+        User, Post
+    ).join(
+        Post,
+    ).filter(
+        # or => выполняется что-то одно
+        or_(
+            Post.title.ilike("%flask%"),
+            Post.title.ilike("%django%")
+        )
+    ).options(
+        joinedload(User.profile),
+    ).all()
+
+    print("users with flask or django posts: ")
+    for user, post in users_flask_or_django:
+        print("user", user)
+        print("his matched posts:", post)
+
+    Session.close()
 
 
 def main():
@@ -136,8 +198,10 @@ def main():
     # create_users()
     # # добавили профили
     # add_profiles()
+    # create_posts()
     # show_users_with_related()
-    create_posts()
+    # demo_filtering()
+    demo_filtering2()
 
 
 if __name__ == '__main__':
